@@ -4,3 +4,4 @@ Transformer decoder models of various sizes trained on news articles on Google's
 1. Pre-training on 1.87B tokens of cleaned data for two epochs. 
 2. Fine-tuning on one epoch on selected articles with length between 128 and 256 tokens. 
 3. Direct Preference Optimization on generated articles that were judged by ChatGPT.
+
