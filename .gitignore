@@ -1,0 +1,7 @@
+data/
+logs/
+checkpoints/
+tokenizers/
+dev.ipynb
+commands.md
+__pycache__/
