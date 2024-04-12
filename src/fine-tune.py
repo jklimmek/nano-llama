@@ -17,7 +17,7 @@ class SFTDataset(Dataset):
     """Each instance in dataset is padded to pre-defined length and contains special tokens.
 
     Tokens of each sample: 
-    [TITLE] <Example title here> [CONTEXT] <Text of the article> [END-OF-TEXT] [PADDING]
+    [TITLE] <Example title here> [CONTEXT] <Text of the article> [END-OF-TEXT] [PADDING] [PADDING] ...
     """
     def __init__(self, data_path, device):
         super().__init__()
@@ -39,8 +39,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_size", type=str, default="tiny", choices=["small", "tiny", "micro", "nano"], help="Model size.") # ok.
     parser.add_argument("--vocab_size", type=int, default=10_000, help="Vocabulary size.") # ok.
-    parser.add_argument("--context_size", type=int, default=256, help="Number of tokens to process at a time.") # ok.
-    parser.add_argument("--tokens_per_batch", type=int, default=4096, help="Number of tokens per batch.") # ok.
+    parser.add_argument("--batch_size", type=int, default=32, help="Number of examples per batch.") # ok.
 
     parser.add_argument("--epochs", type=int, default=1, help="Total number of epochs.") # ok.
     parser.add_argument("--max_lr", type=float, default=3e-5, help="Max learning rate.") # ok.
@@ -71,7 +70,6 @@ def parse_args():
     args_dict = vars(args)
     args_dict.update(model_size)
     args_dict["device"] = "cuda" if torch.cuda.is_available() and not args_dict.pop("use_cpu") else "cpu"
-    args_dict["batch_size"] = int(args.tokens_per_batch / args.context_size)
     if args_dict["precision"] == "fp16" and args_dict["device"] == "cuda":
         args_dict["precision"] = torch.float16
     elif args_dict["precision"] == "bf16" and args_dict["device"] == "cuda" and torch.cuda.is_bf16_supported():
@@ -111,7 +109,6 @@ def start_training(args):
         ffwd_dropout=args["dropout"],
         resid_dropout=args["dropout"]
     ).to(device)
-
     _ = load_checkpoint(checkpoint, model)
 
     criterion = nn.CrossEntropyLoss()
@@ -158,7 +155,7 @@ def start_training(args):
             x, y = batch
             with ctx:
                 logits = model(x)
-                # todo: Zero-out loss for prompt, change attention pattern to include all of prompt.
+                # todo: Zero-out loss for prompt.
                 loss = criterion(logits.transpose(1, 2), y) / args["grad_acc"]
             scaler.scale(loss).backward()
 
@@ -176,7 +173,7 @@ def start_training(args):
                 scaler.update()
                 optimizer.zero_grad(set_to_none=True)
 
-             # Logging.
+            # Logging.
             if step % log_interval == 0:
                 tb_step = len(train_loader) * epoch + step
                 writer.add_scalar("sft_losses/train_step_loss", np.mean(train_step_loss), tb_step)
