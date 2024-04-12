@@ -7,10 +7,11 @@ from .utils import load_checkpoint, get_model_size
 
 class ArticleGenerator:
 
-    def __init__(self, model, tokenizer, end_token):
+    def __init__(self, model, tokenizer, end_token, context_size):
         self.model = model
         self.tokenizer = tokenizer
         self.end_token = end_token
+        self.context_size = context_size
 
     @classmethod
     def from_config(
@@ -27,7 +28,7 @@ class ArticleGenerator:
         model = NanoLlama(vocab_size, context_size, **model_params)
         _ = load_checkpoint(checkpoint_path, model)
         model.eval()
-        return cls(model, tokenizer, end_token)
+        return cls(model, tokenizer, end_token, context_size)
 
     @torch.no_grad()
     def generate(
@@ -41,6 +42,7 @@ class ArticleGenerator:
         length_penalty: float = 0.0,
         alpha: float = 0.0
     ):
+        assert max_tokens <= self.context_size, "`max_tokens` must be less then or equal to `self.context_size`"
         tokens = torch.tensor([self.tokenizer.encode(text).ids], dtype=torch.long)
 
         # Based on given parameters choose the appropriate generation method.
@@ -78,14 +80,14 @@ class ArticleGenerator:
                     top_tokens = torch.tensor([[[top_token.item()]]])
 
                 for token in top_tokens:
-                    ne_text = partial_text.clone()
-                    ne_text = torch.cat((ne_text, token), dim=-1)
+                    new_text = partial_text.clone()
+                    new_text = torch.cat((new_text, token), dim=-1)
                     new_score = candidate['score'] + torch.log(probabilities[token])
 
                     # Apply length penalty to the score.
                     penalty = ((5 + i) / 6) ** length_penalty
                     new_score /= penalty
-                    next_beam_candidates.append({'text': ne_text, 'score': new_score})
+                    next_beam_candidates.append({'text': new_text, 'score': new_score})
 
             next_beam_candidates.sort(key=lambda x: x['score'], reverse=True)
             beam_candidates = next_beam_candidates[:beam_size]
