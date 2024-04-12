@@ -111,7 +111,7 @@ class ArticleGenerator:
             tokens = torch.cat((tokens, next_token), dim=-1)
             if self.__check_end_token(next_token):
                 break
-
+                
         return tokens.squeeze(0).numpy()
     
     def top_p(self, tokens, max_tokens, top_p, temperature):
@@ -160,7 +160,6 @@ class ArticleGenerator:
                 break
         
         return tokens.squeeze(0).numpy()
-
 
     def __check_end_token(self, token):
         return token == self.tokenizer.token_to_id(self.end_token)
