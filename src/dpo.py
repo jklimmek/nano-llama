@@ -32,9 +32,6 @@ class DPODataset(Dataset):
     
     def __getitem__(self, index):
         accepted, rejected = torch.from_numpy(self.data[index]).to(torch.long).to(self.device).chunk(2, dim=-1)
-        # print()
-        # print(accepted.shape)
-        # print()
         x_accepted, y_accepted = accepted[:-1], accepted[1:]
         x_rejected, y_rejected = rejected[:-1], rejected[1:]
         return x_accepted, y_accepted, x_rejected, y_rejected
@@ -172,9 +169,6 @@ def start_training(args):
 
             # Forward & backward pass.
             x_accepted, y_accepted, x_rejected, y_rejected = batch
-            # print()
-            # print(x_accepted.shape)
-            # print()
             with ctx:
                 # Query the models.
                 logprobs_accepted = model(x_accepted).log_softmax(-1)
