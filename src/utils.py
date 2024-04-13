@@ -83,9 +83,9 @@ def save_checkpoint(path, model, optimizer=None, max_steps=None, step=None, proc
     }, path)
 
 
-def load_checkpoint(path, model, optimizer=None):
+def load_checkpoint(path, model, optimizer=None, map_location="cpu"):
     """Loads a model checkpoint."""
-    checkpoint = torch.load(path)
+    checkpoint = torch.load(path, map_location=torch.device(map_location))
     model.load_state_dict(checkpoint["model"])
     if optimizer and checkpoint["optimizer"]:
         optimizer.load_state_dict(checkpoint["optimizer"])
