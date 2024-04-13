@@ -18,7 +18,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_size", type=str, default="tiny", choices=["small", "tiny", "micro", "nano"], help="Model size.") # ok.
     parser.add_argument("--init_mode", type=str, default="gpt-2", choices=["gpt-2", "olmo", "small"], help="Weight init type.") # ok.
-    parser.add_argument("--vocab_size", type=int, default=20_000, help="Vocabulary size.") # ok.
+    parser.add_argument("--vocab_size", type=int, default=10_000, help="Vocabulary size.") # ok.
     parser.add_argument("--context_size", type=int, default=256, help="Number of tokens to process at a time.") # ok.
     parser.add_argument("--tokens_per_batch", type=int, default=4096, help="Number of tokens per batch.") # ok.
 
