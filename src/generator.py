@@ -7,20 +7,24 @@ from .utils import load_checkpoint, get_model_size
 
 class ArticleGenerator:
 
-    def __init__(self, model, tokenizer, end_token, context_size):
+    def __init__(self, model, tokenizer, context_size, title_token, context_token, end_token):
         self.model = model
         self.tokenizer = tokenizer
-        self.end_token = end_token
         self.context_size = context_size
+        self.title_token = title_token
+        self.context_token = context_token
+        self.end_token = end_token
 
     @classmethod
     def from_config(
         cls, 
-        checkpoint_path, 
-        tokenizer_path,
-        model_size,
-        context_size = 256, 
-        end_token = "[END-OF-TEXT]", 
+        checkpoint_path: str, 
+        tokenizer_path: str,
+        model_size: str,
+        context_size: int = 256, 
+        title_token: str = "[TITLE]",
+        context_token: str = "[CONTEXT]",
+        end_token: str = "[END-OF-TEXT]", 
     ):
         tokenizer = Tokenizer.from_file(tokenizer_path)
         vocab_size = tokenizer.get_vocab_size()
@@ -28,7 +32,7 @@ class ArticleGenerator:
         model = NanoLlama(vocab_size, context_size, **model_params)
         _ = load_checkpoint(checkpoint_path, model)
         model.eval()
-        return cls(model, tokenizer, end_token, context_size)
+        return cls(model, tokenizer, context_size, title_token, context_token, end_token)
 
     @torch.no_grad()
     def generate(
@@ -42,8 +46,14 @@ class ArticleGenerator:
         length_penalty: float = 0.0,
         alpha: float = 0.0
     ):
-        assert max_tokens <= self.context_size, "`max_tokens` must be less then or equal to `self.context_size`"
-        tokens = torch.tensor([self.tokenizer.encode(text).ids], dtype=torch.long)
+        max_tokens == self.context_size if max_tokens > self.context_size else max_tokens
+        tokens = torch.tensor(
+            [
+                self.tokenizer.token_to_id(self.title_token),
+                *self.tokenizer.encode(text).ids,
+                self.tokenizer.token_to_id(self.context_token)
+            ], dtype=torch.long
+        ).unsqueeze(0)
 
         # Based on given parameters choose the appropriate generation method.
         if beam_size > 0 and top_k == 0 and top_p == 0:
