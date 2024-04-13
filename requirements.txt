@@ -1,0 +1,5 @@
+einops==0.6.1
+streamlit==1.28.1
+tokenizers==0.13.2
+torch==2.0.1
+tqdm==4.64.1
