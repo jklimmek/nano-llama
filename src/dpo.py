@@ -31,9 +31,12 @@ class DPODataset(Dataset):
         return len(self.data)
     
     def __getitem__(self, index):
-        accepted, rejected = torch.from_numpy(self.data[index]).chunk(2, dim=-1).to(torch.long).to(self.device)
-        x_accepted, y_accepted = accepted[:, :-1], accepted[:, 1:]
-        x_rejected, y_rejected = rejected[:, :-1], rejected[:, 1:]
+        accepted, rejected = torch.from_numpy(self.data[index]).to(torch.long).to(self.device).chunk(2, dim=-1)
+        # print()
+        # print(accepted.shape)
+        # print()
+        x_accepted, y_accepted = accepted[:-1], accepted[1:]
+        x_rejected, y_rejected = rejected[:-1], rejected[1:]
         return x_accepted, y_accepted, x_rejected, y_rejected
     
 
@@ -42,7 +45,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_size", type=str, default="tiny", choices=["small", "tiny", "micro", "nano"], help="Model size.") # ok.
     parser.add_argument("--vocab_size", type=int, default=10_000, help="Vocabulary size.") # ok.
-    parser.add_argument("--batch_size", type=int, default=32, help="Number of examples per batch.") # ok.
+    parser.add_argument("--context_size", type=int, default=256, help="Number of tokens to process at a time.") # ok.
+    parser.add_argument("--batch_size", type=int, default=16, help="Number of examples per batch.") # ok.
 
     parser.add_argument("--epochs", type=int, default=1, help="Total number of epochs.") # ok.
     parser.add_argument("--max_lr", type=float, default=3e-6, help="Max learning rate.") # ok.
@@ -51,6 +55,7 @@ def parse_args():
     parser.add_argument("--anneal_to_zero", type=int, default=100, help="Decrease learning rate to 0 for last steps.") # ok.
 
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay.") # ok.  
+    parser.add_argument("--beta", type=float, default=0.1, help="Beta parameter for DPO.") # ok.  
     parser.add_argument("--betas", type=float, nargs=2, default=(0.9, 0.999), help="AdamW betas.") # ok.
     parser.add_argument("--clip_grad", type=float, default=0.0, help="Gradient clipping.") # ok.
     parser.add_argument("--grad_acc", type=int, default=1, help="Gradient accumulation steps.") # ok.
@@ -167,6 +172,9 @@ def start_training(args):
 
             # Forward & backward pass.
             x_accepted, y_accepted, x_rejected, y_rejected = batch
+            # print()
+            # print(x_accepted.shape)
+            # print()
             with ctx:
                 # Query the models.
                 logprobs_accepted = model(x_accepted).log_softmax(-1)
@@ -184,7 +192,7 @@ def start_training(args):
                 # todo: Zero-out loss for prompt.
                 dpo_loss, accepted_rewards, rejected_rewards = \
                     preference_loss(
-                        logprob_accepted, logprob_rejected, ref_logprob_accepted, ref_logprob_rejected
+                        logprob_accepted, logprob_rejected, ref_logprob_accepted, ref_logprob_rejected, args["beta"]
                     )
 
             scaler.scale(dpo_loss / args["grad_acc"]).backward()
@@ -222,3 +230,12 @@ def start_training(args):
             path=os.path.join(model_dir, checkpoint_name),
             model=model,
         )
+
+
+def main():
+    args = parse_args()
+    start_training(args)
+
+
+if __name__ == "__main__":
+    main()
