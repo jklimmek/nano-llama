@@ -39,6 +39,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_size", type=str, default="tiny", choices=["small", "tiny", "micro", "nano"], help="Model size.") # ok.
     parser.add_argument("--vocab_size", type=int, default=10_000, help="Vocabulary size.") # ok.
+    parser.add_argument("--context_size", type=int, default=256, help="Number of tokens to process at a time.") # ok.
     parser.add_argument("--batch_size", type=int, default=32, help="Number of examples per batch.") # ok.
 
     parser.add_argument("--epochs", type=int, default=1, help="Total number of epochs.") # ok.
