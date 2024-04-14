@@ -32,9 +32,7 @@ class DPODataset(Dataset):
     
     def __getitem__(self, index):
         accepted, rejected = torch.from_numpy(self.data[index]).to(torch.long).to(self.device).chunk(2, dim=-1)
-        x_accepted, y_accepted = accepted[:-1], accepted[1:]
-        x_rejected, y_rejected = rejected[:-1], rejected[1:]
-        return x_accepted, y_accepted, x_rejected, y_rejected
+        return accepted, rejected
     
 
 def parse_args():
@@ -83,6 +81,17 @@ def parse_args():
     return args_dict
 
 
+def get_batch_logprops(logits, labels):
+    """Calculates sum of policy logprobs given logits and labels."""
+    logits = logits[:, :-1, :]
+    labels = labels[:, 1:].clone()
+    # todo: Ignore prompt in loss aswell.
+    loss_mask = (labels != 0)
+    labels[labels == 0] = 0
+    per_token_logps = logits.log_softmax(-1).gather(2, labels.unsqueeze(2)).squeeze(2)
+    return (per_token_logps * loss_mask).sum(-1)
+
+
 def preference_loss(
         policy_logprobs_accepted, 
         policy_logprobs_rejected, 
@@ -94,8 +103,8 @@ def preference_loss(
     log_ratio_w = policy_logprobs_accepted - reference_logprobs_accepted
     log_ratio_l = policy_logprobs_rejected - reference_logprobs_rejected
     dpo_loss = -F.logsigmoid(beta * log_ratio_w - beta * log_ratio_l).mean()
-    accepted_rewards = (beta * log_ratio_w).mean().detach()
-    rejected_rewards = (beta * log_ratio_l).mean().detach()
+    accepted_rewards = (beta * log_ratio_w).detach()
+    rejected_rewards = (beta * log_ratio_l).detach()
     return dpo_loss, accepted_rewards, rejected_rewards
 
 
@@ -159,6 +168,9 @@ def start_training(args):
         train_step_loss = []
         train_step_acc_rews = []
         train_step_rej_rews = []
+        train_step_batch_margins = []
+        train_step_batch_accs = []
+
         model.train()
         for step, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc=f"Epoch {epoch}",ncols=100):
 
@@ -168,25 +180,24 @@ def start_training(args):
                 param_group["lr"] = lr
 
             # Forward & backward pass.
-            x_accepted, y_accepted, x_rejected, y_rejected = batch
+            accepted, rejected = batch
             with ctx:
                 # Query the models.
-                logprobs_accepted = model(x_accepted).log_softmax(-1)
-                logprobs_rejected = model(x_rejected).log_softmax(-1)
-                ref_logprobs_accepted = ref_model(x_accepted).log_softmax(-1)
-                ref_logprobs_rejected = ref_model(x_rejected).log_softmax(-1)
+                logits_accepted = model(accepted)
+                logits_rejected = model(rejected)
+                ref_logits_accepted = ref_model(accepted)
+                ref_logits_rejected = ref_model(rejected)
 
-                # Get selected logprobs.
-                logprob_accepted = logprobs_accepted.gather(2, y_accepted.unsqueeze(2)).squeeze(-1)
-                logprob_rejected = logprobs_rejected.gather(2, y_rejected.unsqueeze(2)).squeeze(-1)
-                ref_logprob_accepted = ref_logprobs_accepted.gather(2, y_accepted.unsqueeze(2)).squeeze(-1)
-                ref_logprob_rejected = ref_logprobs_rejected.gather(2, y_rejected.unsqueeze(2)).squeeze(-1)
+                # Calculate logprobs.
+                batch_accepted = get_batch_logprops(logits_accepted, accepted)
+                batch_rejected = get_batch_logprops(logits_rejected, rejected)
+                ref_batch_accepted = get_batch_logprops(ref_logits_accepted, accepted)
+                ref_batch_rejected = get_batch_logprops(ref_logits_rejected, rejected)
 
                 # Calculate the loss and the rewards.
-                # todo: Zero-out loss for prompt.
                 dpo_loss, accepted_rewards, rejected_rewards = \
                     preference_loss(
-                        logprob_accepted, logprob_rejected, ref_logprob_accepted, ref_logprob_rejected, args["beta"]
+                        batch_accepted, batch_rejected, ref_batch_accepted, ref_batch_rejected, args["beta"]
                     )
 
             scaler.scale(dpo_loss / args["grad_acc"]).backward()
@@ -195,8 +206,10 @@ def start_training(args):
             loss_item = dpo_loss.item()
             train_step_loss.append(loss_item)
             train_epoch_loss += loss_item / len(train_loader)
-            train_step_acc_rews.append(accepted_rewards.item())
-            train_step_rej_rews.append(rejected_rewards.item())
+            train_step_acc_rews.append(accepted_rewards.mean().item())
+            train_step_rej_rews.append(rejected_rewards.mean().item())
+            train_step_batch_margins.append((accepted_rewards - rejected_rewards).mean().item())
+            train_step_batch_accs.append((accepted_rewards > rejected_rewards).float().mean().item())
 
             # Gradient clipping and optimizer update.
             if step % args["grad_acc"] == 0 or step == len(train_loader) - 1:
@@ -212,11 +225,17 @@ def start_training(args):
                 tb_step = len(train_loader) * epoch + step
                 writer.add_scalar("dpo_losses/train_step_loss", np.mean(train_step_loss), tb_step)
                 writer.add_scalar("dpo_charts/lr", lr, tb_step)
-                writer.add_scalar("dpo_charts/train_step_acc_rews", np.mean(train_step_acc_rews), tb_step)
-                writer.add_scalar("dpo_charts/train_step_rej_rews", np.mean(train_step_rej_rews), tb_step)
+                writer.add_scalar("dpo_charts/train_step_accepted_rewards", np.mean(train_step_acc_rews), tb_step)
+                writer.add_scalar("dpo_charts/train_step_rejected_rewards", np.mean(train_step_rej_rews), tb_step)
+                writer.add_scalar("dpo_charts/train_step_margins", np.mean(train_step_batch_margins), tb_step)
+                writer.add_scalar("dpo_charts/train_step_accuracy", np.mean(train_step_batch_accs), tb_step)
                 train_step_loss = []
                 train_step_acc_rews = []
                 train_step_rej_rews = []
+                train_step_batch_margins = []
+                train_step_batch_accs = []
+        
+        writer.add_scalar("dpo_losses/train_epoch_loss", train_epoch_loss, epoch + 1)
 
         # Save checkpoint.
         checkpoint_name = f"epoch-{epoch + 1}_loss-{train_epoch_loss:.4f}.pt"
