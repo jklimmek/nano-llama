@@ -1,4 +1,4 @@
-# NanoLlama
+# nano-llama
 Home dummy project of transformer decoder models of various sizes trained on [2.6M news articles](https://components.one/datasets/all-the-news-2-news-articles-dataset) on Google's free T4 GPU. The training process involved three main stages:
 
 1. Pre-training on 1.87B tokens of cleaned data for two epochs. 
